@@ -1,0 +1,187 @@
+import datetime
+import sqlite3
+from tkcalendar import DateEntry
+from tkinter import *
+import tkinter.messagebox as mb
+import tkinter.ttk as ttk
+
+# Connect to the Database
+connector = sqlite3.connect("Expense Tracker.db")
+cursor = connector.cursor()
+
+# Create ExpenseTracker table if it doesn't exist
+connector.execute(
+    '''CREATE TABLE IF NOT EXISTS ExpenseTracker 
+       (ID INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+        Date TEXT, 
+        Payee TEXT, 
+        Description TEXT, 
+        Amount REAL, 
+        ModeOfPayment TEXT)'''
+)
+connector.commit()
+
+# Functions
+def list_all_expenses():
+    """Retrieve and display all expenses from the database in the Treeview."""
+    table.delete(*table.get_children())  # Clear existing entries in Treeview
+
+    for row in connector.execute('SELECT * FROM ExpenseTracker'):
+        table.insert('', END, values=row)
+
+def view_expense_details():
+    """Populate the input fields with details of the selected expense for viewing or editing."""
+    if not table.selection():
+        mb.showerror('No expense selected', 'Please select an expense from the table to view its details')
+        return
+
+    selected = table.item(table.focus())['values']
+    date.set_date(datetime.datetime.strptime(selected[1], "%Y-%m-%d"))
+    payee.set(selected[2])
+    desc.set(selected[3])
+    amnt.set(selected[4])
+    MoP.set(selected[5])
+
+def clear_fields():
+    """Clear input fields in the Data Entry frame."""
+    today = datetime.datetime.now().date()
+    date.set_date(today)
+    payee.set('')
+    desc.set('')
+    amnt.set(0.0)
+    MoP.set('Cash')
+    table.selection_remove(*table.selection())
+
+def remove_expense():
+    """Delete the selected expense from the database."""
+    if not table.selection():
+        mb.showerror('No record selected', 'Please select a record to delete')
+        return
+
+    selected = table.item(table.focus())['values']
+    connector.execute('DELETE FROM ExpenseTracker WHERE ID=?', (selected[0],))
+    connector.commit()
+
+    list_all_expenses()
+    mb.showinfo('Record deleted', 'The selected record has been deleted')
+
+def remove_all_expenses():
+    """Delete all expenses from the database."""
+    if mb.askyesno('Confirmation', 'Are you sure you want to delete all expenses?', icon='warning'):
+        connector.execute('DELETE FROM ExpenseTracker')
+        connector.commit()
+        list_all_expenses()
+        mb.showinfo('All expenses deleted', 'All records have been deleted')
+
+def add_another_expense():
+    """Add a new expense to the database."""
+    if not (date.get() and payee.get() and desc.get() and amnt.get() and MoP.get()):
+        mb.showerror('Fields empty', "Please fill all fields")
+        return
+
+    connector.execute(
+        'INSERT INTO ExpenseTracker (Date, Payee, Description, Amount, ModeOfPayment) VALUES (?, ?, ?, ?, ?)',
+        (date.get_date(), payee.get(), desc.get(), float(amnt.get()), MoP.get())
+    )
+    connector.commit()
+
+    clear_fields()
+    list_all_expenses()
+    mb.showinfo('Expense added', 'The expense has been added successfully')
+
+def edit_expense():
+    """Edit the details of the selected expense."""
+    if not table.selection():
+        mb.showerror('No expense selected', 'Please select an expense to edit')
+        return
+
+    selected = table.item(table.focus())['values']
+    connector.execute(
+        'UPDATE ExpenseTracker SET Date=?, Payee=?, Description=?, Amount=?, ModeOfPayment=? WHERE ID=?',
+        (date.get_date(), payee.get(), desc.get(), float(amnt.get()), MoP.get(), selected[0])
+    )
+    connector.commit()
+
+    clear_fields()
+    list_all_expenses()
+    mb.showinfo('Expense updated', 'The selected expense has been updated')
+
+def selected_expense_to_words():
+    """Convert the selected expense into a readable sentence format."""
+    if not table.selection():
+        mb.showerror('No expense selected', 'Please select an expense to view as text')
+        return
+
+    selected = table.item(table.focus())['values']
+    message = f"You paid {selected[4]} to {selected[2]} for {selected[3]} on {selected[1]} via {selected[5]}"
+    mb.showinfo("Expense Details", message)
+
+# Set up the GUI
+root = Tk()
+root.title('Expense Tracker')
+root.geometry('1200x550')
+root.resizable(0, 0)
+
+Label(root, text='EXPENSE TRACKER', font=('Noto Sans CJK TC', 15, 'bold'), bg='#67EC17').pack(side=TOP, fill=X)
+
+# Define Tkinter variables
+desc = StringVar()
+amnt = DoubleVar()
+payee = StringVar()
+MoP = StringVar(value='Cash')
+
+# Data Entry Frame
+data_entry_frame = Frame(root, bg='#999')
+data_entry_frame.place(x=0, y=30, relheight=0.95, relwidth=0.25)
+
+Label(data_entry_frame, text='Date (M/DD/YY):', font=('Georgia', 13), bg='#999').place(x=10, y=50)
+date = DateEntry(data_entry_frame, font='Times 13 bold')
+date.place(x=160, y=50)
+
+Label(data_entry_frame, text='Payee:', font=('Georgia', 13), bg='#999').place(x=10, y=230)
+Entry(data_entry_frame, textvariable=payee, font='Times 13 bold', width=31).place(x=10, y=260)
+
+Label(data_entry_frame, text='Description:', font=('Georgia', 13), bg='#999').place(x=10, y=100)
+Entry(data_entry_frame, textvariable=desc, font='Times 13 bold', width=31).place(x=10, y=130)
+
+Label(data_entry_frame, text='Amount:', font=('Georgia', 13), bg='#999').place(x=10, y=180)
+Entry(data_entry_frame, textvariable=amnt, font='Times 13 bold', width=14).place(x=160, y=180)
+
+Label(data_entry_frame, text='Mode of Payment:', font=('Georgia', 13), bg='#999').place(x=10, y=310)
+OptionMenu(data_entry_frame, MoP, 'Cash', 'Cheque', 'Credit Card', 'Debit Card', 'Paytm', 'Google Pay', 'Razorpay').place(x=160, y=305)
+
+Button(data_entry_frame, text='Add Expense', command=add_another_expense, font=('Gill Sans MT', 13), bg='#67EC17').place(x=10, y=395)
+
+# Buttons Frame
+buttons_frame = Frame(root, bg='#999')
+buttons_frame.place(relx=0.25, rely=0.05, relwidth=0.75, relheight=0.21)
+
+Button(buttons_frame, text='Delete Expense', command=remove_expense, font=('Gill Sans MT', 13), bg='#67EC17').place(x=30, y=5)
+Button(buttons_frame, text='Clear Fields', command=clear_fields, font=('Gill Sans MT', 13), bg='#67EC17').place(x=335, y=5)
+Button(buttons_frame, text='Delete All Expenses', command=remove_all_expenses, font=('Gill Sans MT', 13), bg='#67EC17').place(x=640, y=5)
+Button(buttons_frame, text='View Details', command=view_expense_details, font=('Gill Sans MT', 13), bg='#67EC17').place(x=30, y=65)
+Button(buttons_frame, text='Edit Expense', command=edit_expense, font=('Gill Sans MT', 13), bg='#67EC17').place(x=335, y=65)
+Button(buttons_frame, text='Convert to Sentence', command=selected_expense_to_words, font=('Gill Sans MT', 13), bg='#67EC17').place(x=640, y=65)
+
+# Treeview Frame
+tree_frame = Frame(root)
+tree_frame.place(relx=0.25, rely=0.26, relwidth=0.75, relheight=0.74)
+
+table = ttk.Treeview(tree_frame, selectmode=BROWSE, columns=('ID', 'Date', 'Payee', 'Description', 'Amount', 'ModeOfPayment'))
+table.heading('ID', text='S No.', anchor=CENTER)
+table.heading('Date', text='Date', anchor=CENTER)
+table.heading('Payee', text='Payee', anchor=CENTER)
+table.heading('Description', text='Description', anchor=CENTER)
+table.heading('Amount', text='Amount', anchor=CENTER)
+table.heading('ModeOfPayment', text='Mode of Payment', anchor=CENTER)
+
+table.column('#0', width=0, stretch=NO)
+table.column('#1', width=50, stretch=NO)
+table.column('#2', width=95, stretch=NO)
+table.column('#3', width=150, stretch=NO)
+table.column('#4', width=325, stretch=NO)
+table.column('#5', width=135, stretch=NO)
+table.column('#6', width=125, stretch=NO)
+
+X_Scroller = Scrollbar(table, orient=HORIZONTAL, command=table.xview)
+Y_Scroller = Scrollbar(table, orient=VERTICAL, command=table.yview)
